@@ -47,14 +47,14 @@ class NeuralNetwork:
 		self.debug_log("Init {} neural network.".format(self.name))
 	
 	# Extended init functions.
-	def new(self, architecture: list, learning_rate: float = 1, epochs: int = 1):
+	def new(self, architecture: list, learning_rate: float = 1):
 		"""
 		Setup a new neural network.
 		Check __init__ for details on each value.
 		"""
-		self.setup(architecture, learning_rate, epochs)
+		self.setup(architecture, learning_rate)
 		self.init_parameters()
-		self.log("Completed {} neural network initialization.".format(self.name))
+		self.log("Completed '{}' neural network initialization.".format(self.name))
 	
 	def load(self, architecture: list, parameter_values: dict, learning_rate: int):
 		"""
@@ -74,7 +74,7 @@ class NeuralNetwork:
 		self.log("Successfully loaded architecture of size {} with parameter list of size {}"
 		         .format(len(architecture), len(parameter_values)))
 	
-	def setup(self, architecture: list, learning_rate: float = 1, epochs: int = 1):
+	def setup(self, architecture: list, learning_rate: float = 1):
 		"""
 		Post initialization of parts of the neural network.
 		Check __init__ for details on each value.
@@ -82,12 +82,10 @@ class NeuralNetwork:
 		self.architecture = architecture
 		self.number_of_layers = len(architecture)
 		self.learning_rate = learning_rate
-		self.epochs = epochs
 		
-		self.debug_log("Completed setup.")
-		self.debug_log("architecture: {}".format(self.architecture))
-		self.debug_log("number_of_layers: {}".format(self.number_of_layers))
-		self.debug_log("learning_rate: {}".format(self.learning_rate))
+		self.debug_log("architecture: {}".format(self.architecture), indent=2)
+		self.debug_log("number_of_layers: {}".format(self.number_of_layers), indent=2)
+		self.debug_log("learning_rate: {}".format(self.learning_rate), indent=2)
 	
 	def init_parameters(self):
 		"""
@@ -109,7 +107,7 @@ class NeuralNetwork:
 			self.parameter_values['b' + str(layer_index)] = np.random.randn(
 				layer_output_size, 1) * 0.1
 		
-		self.debug_log("Parameter list initialized.")
+		self.log("Parameter list initialized.")
 		self.debug_log("Parameter list: {}".format(self.parameter_values))
 		return
 	
@@ -140,7 +138,7 @@ class NeuralNetwork:
 	
 	# Forward propagation
 	def single_layer_forward_propagation(self, A_prev, W_curr, b_curr,
-	                                     activation: ActivationFunction = ReLu()):
+	                                     activation: ActivationFunction = Sigmoid()):
 		"""
 		Performs a single layer of forward propagation
 		:param A_prev: Previous layers output.
@@ -188,7 +186,7 @@ class NeuralNetwork:
 	
 	# Backward propagation
 	def single_layer_backward_propagation(self, dA_curr, W_curr, b_curr, Z_curr, A_prev,
-	                                      activation: ActivationFunction = ReLu()):
+	                                      activation: ActivationFunction = Sigmoid()):
 		"""
 		Performs a single layer of backwards propagation.
 		:param dA_curr: Current layers output.
@@ -281,55 +279,98 @@ class NeuralNetwork:
 			multiplier = 1.2
 		else:
 			multiplier = 0.8
-		self.debug_log(multiplier)
 		self.learning_rate *= multiplier
 		
 		return multiplier
 	
-	def train(self, input_array: np.ndarray, output_array: np.ndarray, batch_size: int):
+	def full_feed(self, input_array, output_array):
+		"""
+		A single full process of forwards and backwards propagation.
+		:param input_array: Input data.
+		:param output_array: Output data.
+		:return: The neural networks prediction.
+		"""
+		# Get the neural networks prediction.
+		prediction, cache = self.full_forward_propagation(input_array)
+		
+		# Get neural networks errors.
+		delta_values = self.full_backward_propagation(prediction, output_array, cache)
+		self.update_parameters(delta_values)  # Update parameters.
+		
+		return prediction
+	
+	def calc_final_values(self, prediction, batch_output, do_adapt_lr: bool, last_cost):
+		# Calculate the cost and accuracy of this epoch.
+		cost = self.get_cost_value(prediction, batch_output)
+		accuracy = self.get_accuracy_value(prediction, batch_output)
+		
+		# Try adapt learning rate.
+		if accuracy < self.adaptive_lr_acc_bound:
+			if do_adapt_lr:
+				percent_increase = self.adaptive_learning_rate(cost, last_cost)
+			else:
+				do_adapt_lr = True
+				percent_increase = 1.0
+		else:
+			self.learning_rate = self.bounded_lr
+			percent_increase = 1.0
+		
+		return cost, accuracy, percent_increase, do_adapt_lr
+	
+	def train(self, input_array: np.ndarray, output_array: np.ndarray, epochs: int, batch_size: int):
 		"""
 		Train the neural network with the given inputs and outputs.
 		:param input_array: The inputs to train the neural network on.
 		:param output_array: The outputs to compare the predictions to.
+		:param epochs: How many times to iterate over the input data.
+		:param batch_size: The size of each batch per epoch.
 		:return: The parameter dictionary alongside the cost history and the accuracy history
 		"""
 		cost_history = list()
+		last_cost = 0.0
 		accuracy_history = list()
 		learning_rate_history = list()
 		
 		do_adapt_lr = False
 		
+		self.log("Started training session...")
 		# For each epoch...
-		for i in range(self.epochs):
+		for i in range(epochs):
+			last_batch_index = 0
+			
+			# For each batch...
+			# TODO: Non-uniform batch size will miss final batch. Fix.
+			for j in range(batch_size, len(input_array[0]) + 1, batch_size):
+				batch_array_in = input_array[0][last_batch_index:j]
+				batch_array_out = output_array[0][last_batch_index:j]
 				
-			# Get the neural networks prediction.
-			prediction, cache = self.full_forward_propagation(input_array)
+				# Init batch array and get values for it.
+				batch_input = np.zeros((1, batch_size))
+				batch_output = np.zeros((1, batch_size))
+				for k in range(len(batch_array_in)):
+					batch_input[0][k] = batch_array_in[k]
+					batch_output[0][k] = batch_array_out[k]
+				last_batch_index = j
+				
+				# Full feed function.
+				prediction = self.full_feed(batch_input, batch_output)
+				
+				# Calculate cost, accuracy, and learning rate
+				cost, accuracy, lr_multiplier, do_adapt_lr = self.calc_final_values(prediction, batch_output,
+				                                                                    do_adapt_lr, last_cost)
+				# Store cost, accuracy, and learning rate.
+				cost_history.append(cost)
+				accuracy_history.append(accuracy)
+				learning_rate_history.append(lr_multiplier)
+				
+				# Log the cost and accuracy of this batch.
+				self.full_feed_log((j // batch_size) - 1, cost, accuracy)
+				last_cost = cost
 			
-			# Get neural networks errors.
-			delta_values = self.full_backward_propagation(prediction, output_array, cache)
-			self.update_parameters(delta_values)  # Update parameters.
-			
-			# Calculate the cost and accuracy of this epoch.
-			cost = self.get_cost_value(prediction, output_array)
-			accuracy = self.get_accuracy_value(prediction, output_array)
-			
-			# Try adapt learning rate
-			if accuracy < self.adaptive_lr_acc_bound:
-				if do_adapt_lr:
-					percent_increase = self.adaptive_learning_rate(cost, cost_history[-1])
-					learning_rate_history.append(percent_increase)
-				else:
-					do_adapt_lr = True
-			else:
-				self.learning_rate = self.bounded_lr
-			
-			# Store cost and accuracy.
-			cost_history.append(cost)
-			accuracy_history.append(accuracy)
-			
-			# Log the cost and accuracy of this batch.
-			self.full_feed_log(i, cost, accuracy, is_batch=False)
+			# Log epoch.
+			self.full_feed_log(i, cost_history[-1], accuracy_history[-1], is_batch=False)
 		
+		print("========")
 		return self.parameter_values, cost_history, accuracy_history
 	
 	# Getters
@@ -345,7 +386,7 @@ class NeuralNetwork:
 		m = Y_hat.shape[1]
 		
 		# Cost = -(1/m) * ( output * log(prediction) + (1-output) * log(1-prediction) )
-		cost = -(1/m) * (np.dot(Y, np.log(Y_hat).T) + np.dot(1 - Y, np.log(1 - Y_hat).T))
+		cost = -(1 / m) * (np.dot(Y, np.log(Y_hat).T) + np.dot(1 - Y, np.log(1 - Y_hat).T))
 		
 		return np.squeeze(cost)
 	
@@ -373,38 +414,43 @@ class NeuralNetwork:
 		Exports relevant information about the neural network.
 		:return: Tuple of architecture, parameter values, learning rate and epochs.
 		"""
-		data_list = [self.name, self.architecture, self.parameter_values, self.learning_rate, self.epochs]
+		data_list = [self.name, self.architecture, self.parameter_values]
 		data = tuple(data_list)
 		return data
 	
 	# Debug and print functions.
-	def full_feed_log(self, index: int, cost, accuracy, is_batch: bool = True):
-		indents = 1
-		if is_batch:
-			indents += 1
-			printable_index = index + 1
-			print("----")
-			self.log("Batch {} info:".format(printable_index), indents)
-			indents += 1
-		else:
-			printable_index = index + 1
-			print("========")
-			self.log("Epoch {} info:".format(printable_index), indents)
-			indents += 1
-			
+	def feed_log_values(self, cost, accuracy, indents: int = 1):
 		# Log the cost and accuracy of this epoch.
 		self.log("Cost: {}".format(cost), indents)
 		self.log("Accuracy: {}".format(accuracy), indents)
 		self.log("Learning rate: {}".format(self.learning_rate), indents)
 	
-	def debug_log(self, message):
+	def full_feed_log(self, index: int, cost, accuracy, is_batch: bool = True):
+		indents = 1
+		if is_batch:
+			if self.should_debug_log:
+				indents += 1
+				printable_index = index + 1
+				print("{}----".format(" " * indents))
+				self.log("Batch {} info:".format(printable_index), indents)
+				indents += 1
+				self.feed_log_values(cost, accuracy, indents=indents)
+		else:
+			printable_index = index + 1
+			print("========")
+			self.log("Epoch {} info:".format(printable_index), indents)
+			indents += 1
+			self.feed_log_values(cost, accuracy, indents=indents)
+	
+	def debug_log(self, message, indent: int = 1):
 		"""
 		Debug logging for testing.
 		:param message: The object to debug.
+		:param indent: How much to indent the debug message by.
 		:return:
 		"""
 		if self.should_debug_log:
-			self.log("DEBUG >> {}".format(message))
+			self.log("DEBUG >> {}".format(message, indent))
 	
 	def log(self, message, indent: int = 1):
 		"""
@@ -425,45 +471,3 @@ class NeuralNetwork:
 		:return:
 		"""
 		print("{}> {}".format("  " * indent, message))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
