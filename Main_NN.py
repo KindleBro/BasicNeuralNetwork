@@ -27,8 +27,8 @@ def generate_nn_pair() -> tuple:
 
 
 # setup
-iterations = 20400
-epochs = 100
+iterations = 8000
+epochs = 4
 batches_per_epoch = 400
 learning_rate = 1
 test_size = 10
@@ -51,10 +51,9 @@ for i in range(test_size):
 
 # main
 if __name__ == "__main__":
-	# TODO: Optimize input and output neural network architecture down to a tuple (list?).
 	nn_architecture = [
 		{"input_dim": 1, "output_dim": 2, "activation": "sigmoid"},
-		{"input_dim": 2, "output_dim": 1, "activation": "sigmoid"},
+		{"input_dim": 2, "output_dim": 1, "activation": "sigmoid"}
 	]
 	
 	nn = NeuralNetwork("Test_Network", should_debug_log=True)
@@ -65,35 +64,3 @@ if __name__ == "__main__":
 		prediction, _ = nn.full_forward_propagation(test_in[0][i])
 		print("I: {:.2f}, ({} vs {:.2f})".format(test_in[0][i], test_out[0][i], prediction[0][0]))
 	
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
